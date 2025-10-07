@@ -74,6 +74,23 @@ class TestEVDutyCoordinator(IsolatedAsyncioTestCase):
 
         self.assertEqual(terminals, previous_data)
 
+    async def test_returns_last_data_on_bad_gateway(self):
+        hass = hass_mocks.hass_mock()
+        config_entry = hass_mocks.config_entry_mock()
+        api = Mock(EVDutyApi)
+        coordinator = EVDutyCoordinator(hass=hass, config_entry=config_entry, api=api)
+        previous_data = {"123": 'anything'}
+        coordinator.data = previous_data
+
+        response = AsyncMock()
+        response.status = HTTPStatus.BAD_GATEWAY
+        api.async_get_stations.side_effect = EVDutyApiError(response)
+
+        terminals = await coordinator._async_update_data()
+
+        self.assertEqual(terminals, previous_data)
+
+
     async def test_raise_on_other_api_error(self):
         hass = hass_mocks.hass_mock()
         config_entry = hass_mocks.config_entry_mock()

@@ -31,6 +31,8 @@ class EVDutyCoordinator(DataUpdateCoordinator):
             if error.status == HTTPStatus.UNAUTHORIZED:
                 LOGGER.debug(f'Simultaneous EVduty account usage. Returning last data: {self.data}')
                 return self.data
+            if error.status == HTTPStatus.BAD_GATEWAY:
+                return self.data
             else:
                 raise ConnectionError from error
 
