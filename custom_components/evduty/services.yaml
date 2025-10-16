@@ -1,0 +1,61 @@
+start_session:
+  name: Start Charging Session
+  description: Start a charging session on an EVduty terminal in remote access mode
+  target:
+    device:
+      integration: evduty
+  fields:
+    connector_id:
+      name: Connector ID
+      description: Connector number to use
+      required: false
+      default: 1
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 2
+          mode: box
+    target_duration:
+      name: Target Duration (seconds)
+      description: Maximum session duration in seconds
+      required: false
+      default: 86400
+      example: 86400
+      selector:
+        number:
+          min: 60
+          max: 172800
+          unit_of_measurement: "s"
+          mode: box
+    target_energy:
+      name: Target Energy (Wh)
+      description: Target energy amount in Watt-hours
+      required: false
+      default: 80000
+      example: 80000
+      selector:
+        number:
+          min: 1000
+          max: 200000
+          unit_of_measurement: "Wh"
+          mode: box
+    target_percentage:
+      name: Target Percentage
+      description: Desired battery charge percentage
+      required: false
+      default: 100
+      example: 80
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+          mode: slider
+
+cancel_session:
+  name: Cancel Charging Session
+  description: Cancel the active charging session on an EVduty terminal
+  target:
+    device:
+      integration: evduty

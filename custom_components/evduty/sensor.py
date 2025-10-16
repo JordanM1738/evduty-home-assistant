@@ -33,6 +33,8 @@ async def async_setup_entry(hass, entry, async_add_devices) -> None:
         sensors.append(WifiIpSensor(coordinator, terminal))
         sensors.append(WifiSsidSensor(coordinator, terminal))
         sensors.append(WifiRssiSensor(coordinator, terminal))
+        sensors.append(AccessModeSensor(coordinator, terminal))
+        sensors.append(SessionIdSensor(coordinator, terminal))
 
     async_add_devices(sensors)
 
@@ -199,3 +201,44 @@ class WifiRssiSensor(EVDutyTerminalDevice, SensorEntity):
     @property
     def native_value(self):
         return self._terminal.network_info.wifi_rssi
+
+class AccessModeSensor(EVDutyTerminalDevice, SensorEntity):
+    """Sensor for terminal access mode (remote control or local reporting)."""
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ['local', 'remote', 'unknown']
+    
+    def __init__(self, coordinator: EVDutyCoordinator, terminal: Terminal) -> None:
+        super().__init__(coordinator, terminal, 'Access Mode')
+    
+    @property
+    def native_value(self):
+        if self._terminal.access_mode is None:
+            return 'unknown'
+        return self._terminal.access_mode.value
+    
+    @property
+    def icon(self):
+        """Icon changes based on access mode."""
+        if self._terminal.access_mode:
+            if self._terminal.access_mode.value == 'remote':
+                return 'mdi:lock'
+            elif self._terminal.access_mode.value == 'local':
+                return 'mdi:lock-open-variant'
+        return 'mdi:help-circle'
+
+
+class SessionIdSensor(EVDutyTerminalDevice, SensorEntity):
+    """Sensor for current session_id of the terminal."""
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: EVDutyCoordinator, terminal: Terminal) -> None:
+        super().__init__(coordinator, terminal, 'Session ID')
+
+    @property
+    def native_value(self):
+        # Try to get session_id from terminal first
+        if self._terminal.session and self._terminal.session.session_id:
+            return self._terminal.session.session_id
+        
+        # Fallback to stored session_id in coordinator
+        return self.coordinator.active_sessions.get(self._terminal.id)

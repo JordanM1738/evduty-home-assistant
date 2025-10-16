@@ -19,6 +19,7 @@ class EVDutyCoordinator(DataUpdateCoordinator):
         super().__init__(hass=hass, config_entry=config_entry, logger=LOGGER, name=DOMAIN,
                          update_interval=timedelta(seconds=60))
         self.api = api
+        self.active_sessions = {}
 
     async def _async_update_data(self) -> dict[str, Terminal]:
         try:
@@ -44,4 +45,47 @@ class EVDutyCoordinator(DataUpdateCoordinator):
         except EVDutyApiInvalidCredentialsError as error:
             raise ConfigEntryAuthFailed from error
         except EVDutyApiError as error:
+            raise ConnectionError from error
+
+    async def async_start_session(self, terminal: Terminal, connector_id: int = 1,
+                                   target_duration: int = 86400, target_energy: int = 80000,
+                                   target_percentage: int = 100):
+        """Start a charging session with configurable parameters."""
+        try:
+            async with asyncio.timeout(10):
+                session_response = await self.api.async_start_session(
+                    terminal=terminal,
+                    connector_id=connector_id,
+                    target_duration=target_duration,
+                    target_energy=target_energy,
+                    target_percentage=target_percentage
+                )
+                LOGGER.info(f"Started session {session_response.id} on terminal {terminal.id}")
+                self.active_sessions[terminal.id] = session_response.id
+                await self.async_request_refresh()
+                return session_response
+        except EVDutyApiInvalidCredentialsError as error:
+            LOGGER.error(f"Invalid credentials when starting session: {error}")
+            raise ConfigEntryAuthFailed from error
+        except EVDutyApiError as error:
+            LOGGER.error(f"API error when starting session: {error}")
+            raise ConnectionError from error
+    
+    async def async_cancel_session(self, session_id: str, terminal_id: str = None):
+        """Cancel an active charging session."""
+        try:
+            async with asyncio.timeout(10):
+                LOGGER.debug(f"Calling API to cancel session {session_id}")
+                await self.api.async_cancel_session(session_id)
+                LOGGER.info(f"API call successful for cancelling session {session_id}")
+                if terminal_id and terminal_id in self.active_sessions:
+                    del self.active_sessions[terminal_id]
+                await asyncio.sleep(2)
+                await self.async_request_refresh()
+                LOGGER.debug(f"Data refreshed after cancelling session {session_id}")
+        except EVDutyApiInvalidCredentialsError as error:
+            LOGGER.error(f"Invalid credentials when cancelling session: {error}")
+            raise ConfigEntryAuthFailed from error
+        except EVDutyApiError as error:
+            LOGGER.error(f"API error when cancelling session {session_id}: {error}")
             raise ConnectionError from error
