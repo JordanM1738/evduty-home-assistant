@@ -20,29 +20,30 @@ START_SESSION_SCHEMA = cv.make_entity_service_schema({
 CANCEL_SESSION_SCHEMA = cv.make_entity_service_schema({})
 
 
+def _extract_target_device_id(call: ServiceCall) -> str | None:
+    """Extract a single target device_id from a service call."""
+    device_ids = call.data.get("device_id")
+    if not device_ids:
+        target = call.data.get("target", {})
+        device_ids = target.get("device_id") or target.get("devices") or target.get("entity_id")
+
+    if isinstance(device_ids, list) and device_ids:
+        return device_ids[0]
+    if isinstance(device_ids, str):
+        return device_ids
+
+    return None
+
+
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Set up services for EVduty integration."""
     
     async def handle_start_session(call: ServiceCall) -> None:
         """Handle the start_session service call."""
-        # Log raw call data for debugging
-        LOGGER.debug(f"Service call data: {call.data}")
-        
-        # Extract device_id - it might be directly in call.data or in a target key
-        device_ids = call.data.get("device_id")
-        if not device_ids:
-            target = call.data.get("target", {})
-            device_ids = target.get("device_id", [])
-        
-        if not device_ids:
+        device_id = _extract_target_device_id(call)
+        if not device_id:
             LOGGER.error(f"No device specified in service call. Available keys: {list(call.data.keys())}")
             return
-        
-        # Handle first device (services typically target one device at a time)
-        if isinstance(device_ids, list):
-            device_id = device_ids[0]
-        else:
-            device_id = device_ids
         
         connector_id = call.data.get("connector_id", 1)
         target_duration = call.data.get("target_duration", 86400)
@@ -79,25 +80,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     
     async def handle_cancel_session(call: ServiceCall) -> None:
         """Handle the cancel_session service call."""
-        # Log raw call data for debugging
         LOGGER.debug(f"Service call data: {call.data}")
-        
-        # Extract device_id - it might be directly in call.data or in a target key
-        device_ids = call.data.get("device_id")
-        if not device_ids:
-            target = call.data.get("target", {})
-            device_ids = target.get("device_id", [])
-        
-        if not device_ids:
+
+        device_id = _extract_target_device_id(call)
+        if not device_id:
             LOGGER.error(f"No device specified in service call. Available keys: {list(call.data.keys())}")
             return
-        
-        # Handle first device
-        if isinstance(device_ids, list):
-            device_id = device_ids[0]
-        else:
-            device_id = device_ids
-        
+
         LOGGER.info(f"Service cancel_session called for device {device_id}")
         
         terminal, coordinator = await _get_terminal_from_device_id(hass, device_id)
@@ -108,19 +97,33 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         # Force refresh before checking session_id
         await coordinator.async_request_refresh()
         terminal = coordinator.data.get(terminal.id)
-        LOGGER.debug(f"After refresh: session={terminal.session}, session_id={terminal.session.session_id if terminal.session else None}")
+        if terminal is None:
+            LOGGER.error(f"Terminal {device_id} dropped from coordinator data after refresh")
+            return
 
-        # Try to get session_id from terminal first, then from stored sessions
-        session_id = None
         if terminal.session and terminal.session.session_id:
-            session_id = terminal.session.session_id
-            LOGGER.info(f"Using session_id from terminal: {session_id}")
-        elif terminal.id in coordinator.active_sessions:
-            session_id = coordinator.active_sessions[terminal.id]
+            coordinator.active_sessions[terminal.id] = terminal.session.session_id
+
+        LOGGER.debug(
+            f"After refresh: session={terminal.session}, "
+            f"session_id={terminal.session.session_id if terminal.session else None}, "
+            f"active_sessions={coordinator.active_sessions}"
+        )
+
+        # Prefer coordinator active_sessions (start_session may be in-flight)
+        session_id = coordinator.active_sessions.get(terminal.id)
+        if session_id:
             LOGGER.info(f"Using stored session_id for terminal {terminal.id}: {session_id}")
-        
+        elif terminal.session and terminal.session.session_id:
+            session_id = terminal.session.session_id
+            coordinator.active_sessions[terminal.id] = session_id
+            LOGGER.info(f"Using session_id from terminal after refresh: {session_id}")
+
         if not session_id:
-            LOGGER.error(f"No session_id found on terminal {device_id} after refresh and no stored session. Session: {terminal.session}")
+            LOGGER.error(
+                f"No session_id found on terminal {device_id} after refresh and no stored session. "
+                f"Session: {terminal.session}"
+            )
             return
 
         LOGGER.info(f"Attempting to cancel session {session_id} on terminal {terminal.id}")
@@ -144,7 +147,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         handle_cancel_session,
         schema=CANCEL_SESSION_SCHEMA,
     )
-    
+
     LOGGER.info("EVduty services registered successfully")
 
 

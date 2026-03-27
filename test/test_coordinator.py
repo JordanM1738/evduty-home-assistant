@@ -1,7 +1,7 @@
 from datetime import timedelta
 from http import HTTPStatus
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock, patch
 
 from evdutyapi import EVDutyApi, Station, Terminal, EVDutyApiInvalidCredentialsError, EVDutyApiError
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -103,3 +103,40 @@ class TestEVDutyCoordinator(IsolatedAsyncioTestCase):
 
         with self.assertRaises(ConnectionError):
             await coordinator._async_update_data()
+
+    async def test_start_session_tracks_active_session(self):
+        hass = hass_mocks.hass_mock()
+        config_entry = hass_mocks.config_entry_mock()
+        api = Mock(EVDutyApi)
+        coordinator = EVDutyCoordinator(hass=hass, config_entry=config_entry, api=api)
+
+        session_response = Mock()
+        session_response.id = 'test_session_id'
+        api.async_start_session = AsyncMock(return_value=session_response)
+        coordinator.async_request_refresh = AsyncMock()
+
+        terminal = Mock(Terminal)
+        terminal.id = 'terminal-1'
+
+        result = await coordinator.async_start_session(terminal)
+
+        self.assertEqual(result.id, 'test_session_id')
+        self.assertEqual(coordinator.active_sessions['terminal-1'], 'test_session_id')
+        coordinator.async_request_refresh.assert_awaited_once()
+
+    async def test_cancel_session_removes_active_session(self):
+        hass = hass_mocks.hass_mock()
+        config_entry = hass_mocks.config_entry_mock()
+        api = Mock(EVDutyApi)
+        coordinator = EVDutyCoordinator(hass=hass, config_entry=config_entry, api=api)
+
+        api.async_cancel_session = AsyncMock()
+        coordinator.active_sessions = {'terminal-1': 'test_session_id'}
+        coordinator.async_request_refresh = AsyncMock()
+
+        with patch('custom_components.evduty.coordinator.asyncio.sleep', AsyncMock()):
+            await coordinator.async_cancel_session('test_session_id', terminal_id='terminal-1')
+
+        api.async_cancel_session.assert_awaited_once_with('test_session_id')
+        self.assertNotIn('terminal-1', coordinator.active_sessions)
+
